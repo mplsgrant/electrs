@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use electrs_rocksdb as rocksdb;
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -233,7 +232,7 @@ impl DBStore {
         opts.set_prefix_same_as_start(true); // requires .set_prefix_extractor() above.
         self.db
             .iterator_cf_opt(cf, opts, mode)
-            .map(|(key, _value)| key) // values are empty in prefix-scanned CFs
+            .map(|row| row.expect("prefix iterator failed").0) // values are empty in prefix-scanned CFs
     }
 
     pub(crate) fn read_headers(&self) -> Vec<Row> {
@@ -241,7 +240,7 @@ impl DBStore {
         opts.fill_cache(false);
         self.db
             .iterator_cf_opt(self.headers_cf(), opts, rocksdb::IteratorMode::Start)
-            .map(|(key, _)| key)
+            .map(|row| row.expect("header iterator failed").0) // extract key from row
             .filter(|key| &key[..] != TIP_KEY) // headers' rows are longer than TIP_KEY
             .collect()
     }
@@ -310,7 +309,7 @@ impl DBStore {
             DB_PROPERIES.iter().filter_map(move |property_name| {
                 let value = self
                     .db
-                    .property_int_value_cf(cf, property_name)
+                    .property_int_value_cf(cf, *property_name)
                     .expect("failed to get property");
                 Some((*cf_name, *property_name, value?))
             })
@@ -354,7 +353,7 @@ impl Drop for DBStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{rocksdb, DBStore, WriteBatch, CURRENT_FORMAT};
+    use super::{DBStore, WriteBatch, CURRENT_FORMAT};
 
     #[test]
     fn test_reindex_new_format() {
